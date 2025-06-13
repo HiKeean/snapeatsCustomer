@@ -349,6 +349,51 @@ export async function refresh_token(){
   }
 }
 
+export async function validateToken(){
+  const token = await getToken();
+  console.log(`ini token jing : ${token}`)
+  const response = await fetch(`${API_URL}auth/validateToken`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    }
+  })
+  const res = await response.json()
+  if (!response.ok) {
+    if(res.message == "fetch failed"){
+      throw new Error("Internal Server Error")
+    }
+    throw new Error(res.message || "Login failed")
+  }
+  if(res.data != null){
+    const data = res.data
+    if (data.access_token && data.refresh_token) {
+      const decodedAccessToken = JSON.parse(atob(data.access_token.split(".")[1])); // Decode payload JWT
+      const decodedRefreshToken = JSON.parse(atob(data.refresh_token.split(".")[1])); // Decode payload JWT
+      const tokenData = {
+        access_token: Buffer.from(data.access_token).toString("base64"),
+        refresh_token: Buffer.from(data.refresh_token).toString("base64"),
+        access_exp: decodedAccessToken.exp * 1000, // Convert ke milisecond
+        refresh_exp: decodedRefreshToken.exp * 1000,
+        role: await getRole()
+      };
+    
+      const encryptedTokens = encryptAESClient(JSON.stringify(tokenData));
+
+      (await cookies()).delete("SNAPEATS_SESSION");
+
+      (await cookies()).set("SNAPEATS_SESSION", encryptedTokens, {
+        httpOnly: true, // 🔐 client tidak bisa baca
+        secure: true,   // 🌐 hanya HTTPS
+        path: "/",
+        maxAge: 60 * 60 * 24,
+      });
+      // localStorage.setItem("SNAPEATS_SESSION", encryptedTokens);
+    }
+  }
+  return true;
+}
 
 export async function getToken(){
     const cached = (await cookies()).get("SNAPEATS_SESSION")?.value;

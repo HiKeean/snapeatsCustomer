@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Search, Filter, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { API_FOTOS, getImageUrl } from "@/services/api"
+import { validateToken } from "@/services/authService"
 
 // Interface for restaurant data from API
 interface RestaurantData {
@@ -61,6 +62,7 @@ export default function Home() {
     setLoading(true)
     try {
       // Replace with your actual API endpoint
+      await validateToken()
       const response = await fetch(`/api/restaurants?page=${pageNum}&size=10`)
       const data: ApiResponse = await response.json()
       if (data.content.length === 0) {

@@ -6,8 +6,7 @@ import { getAccessToken } from "./session";
 
 
 // WebSocket URL based on environment
-const WS_URL =
-  process.env.NODE_ENV === "development" ? "http://localhost:8080/ws" : "https://api.keeanthebeartian.my.id/ws"
+const WS_URL = "https://api.keeanthebeartian.my.id/ws"
 
 class WebSocketService {
   private static instance: WebSocketService

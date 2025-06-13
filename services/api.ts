@@ -1,5 +1,6 @@
 //list url
 export const API_URL = process.env.NEXT_PUBLIC_API_URL;
+export const API_DEV = process.env.NEXT_PUBLIC_API_DEV;
 export const API_AUTH = `${API_URL}auth/`
 export const API_FOTO = `${API_URL}foto/`
 export const API_TRANSAKSI_WS = `${API_URL}transaksi`
@@ -29,7 +30,7 @@ export const API_PEMBELI = {
 }
     
 export const API_FOTOS = {
-    POST_UPLOADFOTO: `${API_FOTO}upload`,
+    POST_UPLOADFOTO: `${API_FOTO}uploadFoto`,
     GET_IMGFOTO: `${API_FOTO}getimgpub`,
 }
 
@@ -39,11 +40,16 @@ export const API_RESTO = {
     GET_EXTRAGROUPS: `${API_PEMBELI.API_GETALLRESTAURANT}/getExtraGroup`,
 }
 
-export const getImageUrl = (imagePath: string) => {
-    // if (!imagePath) return "/placeholder.svg?height=200&width=300"
-    if (imagePath.startsWith("http")) return imagePath
-    return `${API_FOTOS.GET_IMGFOTO}?keyword=${imagePath}`
+export const getImageUrl = (imagePath?: string) => {
+  if (!imagePath) return "/placeholder.svg"
+
+  if (imagePath.startsWith("http")) return imagePath
+
+  // Encode hanya bagian keyword-nya
+  const sanitized = encodeURIComponent(imagePath)
+  return `${API_FOTOS.GET_IMGFOTO}?keyword=${sanitized}`
 }
+
 
 export const formatRupiah = (value: number): string => {
   return new Intl.NumberFormat("id-ID", {

@@ -113,7 +113,7 @@ export default function CartPage() {
         name: "Cash on Delivery",
         details: "Pay when your order arrives",
     //   isDefault: true,
-        isActive:true
+        isActive:false
     },
     {
       id: "card",

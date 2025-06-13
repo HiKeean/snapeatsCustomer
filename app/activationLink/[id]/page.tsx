@@ -15,6 +15,8 @@ export default function ActivationPages(){
         const handleLogin = async() => {
             try {
                 const response = await aktivasi(activationId);
+                console.log(response)
+                debugger
                 Swal.fire({
                     title: "Aktivasi Berhasil!",
                     text: "Silahkan Login kembali!",

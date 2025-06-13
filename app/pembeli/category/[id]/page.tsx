@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { BottomNavigation } from "@/components/bottom-navigation"
 import { Button } from "@/components/ui/button"
@@ -47,8 +47,9 @@ interface Restaurant {
   }
 }
 
-export default function CategoryPage({ params }: { params: { id: string } }) {
-  const { id } = params
+export default function CategoryPage() {
+  const params = useParams()
+  const id = params.id as string
   const router = useRouter()
 //   const { toast } = useToast()
   const [loading, setLoading] = useState(true)

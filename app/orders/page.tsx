@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import Image from "next/image"
 import Link from "next/link"
-// import { useWebSocket } from "@/lib/websocket-service"
+import WebSocketService from "@/lib/websocket-service"
 import { BottomNavigation } from "@/components/bottom-navigation"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -12,203 +12,208 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Progress } from "@/components/ui/progress"
 // import { useToast } from "@/hooks/use-toast"
-import { toast } from "sonner";
-
+import OrderService, { type Order, type OrderStatus } from "@/services/OrderService"
 import {
-  Clock,
   MapPin,
   MoreVertical,
   ShoppingBag,
-  CheckCircle2,
   Bike,
   Package,
   AlertCircle,
   RotateCw,
+  Phone,
+  Wifi,
+  WifiOff,
+  Loader2,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-
-// Sample data for active orders
-const activeOrders = [
-  {
-    id: "ORD-001",
-    restaurantName: "Warung Padang Sederhana",
-    restaurantImage: "/placeholder.svg?height=400&width=600",
-    items: [
-      { name: "Beef Rendang", quantity: 1, price: 45000 },
-      { name: "Ayam Pop", quantity: 2, price: 35000 },
-    ],
-    total: 115000,
-    status: "preparing", // preparing, on_the_way, delivered, cancelled
-    orderTime: "2023-03-08T14:30:00",
-    estimatedDelivery: "2023-03-08T15:15:00",
-    deliveryAddress: "Jl. Sudirman No. 123, Jakarta Selatan",
-    trackingSteps: [
-      { id: 1, title: "Order Confirmed", completed: true, time: "14:32" },
-      { id: 2, title: "Preparing Food", completed: true, time: "14:40" },
-      { id: 3, title: "On The Way", completed: false, time: "" },
-      { id: 4, title: "Delivered", completed: false, time: "" },
-    ],
-    driver: {
-      name: "Budi Santoso",
-      phone: "+62812345678",
-      photo: "/placeholder.svg?height=200&width=200",
-      vehicleNumber: "B 1234 XYZ",
-    },
-  },
-  {
-    id: "ORD-002",
-    restaurantName: "Pizza Hut",
-    restaurantImage: "/placeholder.svg?height=400&width=600",
-    items: [
-      { name: "Pepperoni Pizza (Large)", quantity: 1, price: 129000 },
-      { name: "Garlic Bread", quantity: 1, price: 35000 },
-    ],
-    total: 164000,
-    status: "on_the_way", // preparing, on_the_way, delivered, cancelled
-    orderTime: "2023-03-08T13:15:00",
-    estimatedDelivery: "2023-03-08T14:00:00",
-    deliveryAddress: "Jl. Sudirman No. 123, Jakarta Selatan",
-    trackingSteps: [
-      { id: 1, title: "Order Confirmed", completed: true, time: "13:17" },
-      { id: 2, title: "Preparing Food", completed: true, time: "13:25" },
-      { id: 3, title: "On The Way", completed: true, time: "13:45" },
-      { id: 4, title: "Delivered", completed: false, time: "" },
-    ],
-    driver: {
-      name: "Ahmad Rizki",
-      phone: "+62812345679",
-      photo: "/placeholder.svg?height=200&width=200",
-      vehicleNumber: "B 5678 ABC",
-    },
-  },
-]
-
-// Sample data for past orders
-const pastOrders = [
-  {
-    id: "ORD-003",
-    restaurantName: "KFC",
-    restaurantImage: "/placeholder.svg?height=400&width=600",
-    items: [
-      { name: "Original Recipe Chicken (2 pcs)", quantity: 1, price: 40000 },
-      { name: "French Fries (Regular)", quantity: 1, price: 15000 },
-      { name: "Coca Cola (Medium)", quantity: 1, price: 10000 },
-    ],
-    total: 65000,
-    status: "delivered", // preparing, on_the_way, delivered, cancelled
-    orderTime: "2023-03-07T12:30:00",
-    deliveryTime: "2023-03-07T13:05:00",
-    deliveryAddress: "Jl. Sudirman No. 123, Jakarta Selatan",
-  },
-  {
-    id: "ORD-004",
-    restaurantName: "Sushi Tei",
-    restaurantImage: "/placeholder.svg?height=400&width=600",
-    items: [
-      { name: "Salmon Sushi (8 pcs)", quantity: 1, price: 85000 },
-      { name: "Tempura Roll", quantity: 1, price: 65000 },
-      { name: "Green Tea", quantity: 2, price: 15000 },
-    ],
-    total: 180000,
-    status: "delivered", // preparing, on_the_way, delivered, cancelled
-    orderTime: "2023-03-06T19:00:00",
-    deliveryTime: "2023-03-06T19:45:00",
-    deliveryAddress: "Jl. Sudirman No. 123, Jakarta Selatan",
-  },
-  {
-    id: "ORD-005",
-    restaurantName: "Burger King",
-    restaurantImage: "/placeholder.svg?height=400&width=600",
-    items: [
-      { name: "Whopper", quantity: 1, price: 50000 },
-      { name: "Onion Rings", quantity: 1, price: 20000 },
-      { name: "Coca Cola (Large)", quantity: 1, price: 15000 },
-    ],
-    total: 85000,
-    status: "cancelled", // preparing, on_the_way, delivered, cancelled
-    orderTime: "2023-03-05T20:15:00",
-    cancelReason: "Restaurant is too busy",
-    deliveryAddress: "Jl. Sudirman No. 123, Jakarta Selatan",
-  },
-  {
-    id: "ORD-006",
-    restaurantName: "Bakmi GM",
-    restaurantImage: "/placeholder.svg?height=400&width=600",
-    items: [
-      { name: "Bakmi Special", quantity: 2, price: 40000 },
-      { name: "Pangsit Goreng", quantity: 1, price: 25000 },
-      { name: "Es Jeruk", quantity: 2, price: 12000 },
-    ],
-    total: 129000,
-    status: "delivered", // preparing, on_the_way, delivered, cancelled
-    orderTime: "2023-03-04T18:30:00",
-    deliveryTime: "2023-03-04T19:10:00",
-    deliveryAddress: "Jl. Sudirman No. 123, Jakarta Selatan",
-  },
-]
+import Swal from "sweetalert2"
 
 export default function OrdersPage() {
   const [activeTab, setActiveTab] = useState("active")
+  const [activeOrders, setActiveOrders] = useState<Order[]>([])
+  const [pastOrders, setPastOrders] = useState<Order[]>([])
+  const [loading, setLoading] = useState(true)
+  const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected")
+  // const { toast } = useToast()
 
-  // In a real app, this would connect to your WebSocket server
-//   const { status, subscribe } = useWebSocket("wss://echo.websocket.org")
+  const orderService = OrderService.getInstance()
 
-//   useEffect(() => {
-//     // Subscribe to order updates
-//     const unsubscribe = subscribe("order_update", (data) => {
-//       toast({
-//         title: "Order Update",
-//         description: `Order ${data.orderId}: ${data.status}`,
-//       })
+  // WebSocket connection
+  useEffect(() => {
+    const wsService = WebSocketService.getInstance()
 
-//       // In a real app, you would update the order status here
-//     })
+    const connectWebSocket = async () => {
+      setWsStatus("connecting")
+      try {
+        await wsService.connect()
+        setWsStatus("connected")
 
-//     return () => {
-//       unsubscribe()
-//     }
-//   }, [subscribe, toast])
+        // toast({
+        //   title: "Connected",
+        //   description: "Real-time order updates enabled",
+        // })
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "preparing":
-        return (
-          <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-200">
-            Preparing
-          </Badge>
-        )
-      case "on_the_way":
-        return (
-          <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200">
-            On the way
-          </Badge>
-        )
-      case "delivered":
-        return (
-          <Badge variant="outline" className="bg-green-50 text-green-600 border-green-200">
-            Delivered
-          </Badge>
-        )
-      case "cancelled":
-        return (
-          <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">
-            Cancelled
-          </Badge>
-        )
-      default:
-        return <Badge variant="outline">Unknown</Badge>
+        // Subscribe to all order-related events
+        const subscriptions = [
+          wsService.subscribe("order_status_update", handleOrderStatusUpdate),
+          wsService.subscribe("driver_assigned", handleDriverAssigned),
+          wsService.subscribe("order_cancelled", handleOrderCancelled),
+          wsService.subscribe("order_completed", handleOrderCompleted),
+        ]
+
+        // Store subscriptions for cleanup
+        return () => {
+          subscriptions.forEach(async (sub) => (await sub).unsubscribe())
+        }
+      } catch (error) {
+        console.error("WebSocket connection failed:", error)
+        setWsStatus("disconnected")
+        // toast({
+        //   title: "Connection Failed",
+        //   description: "Real-time updates unavailable. Retrying...",
+        //   variant: "destructive",
+        // })
+      }
+    }
+
+    const cleanup = connectWebSocket()
+
+    return () => {
+      if (cleanup) cleanup.then((fn) => fn && fn())
+    }
+  }, [])
+
+  // Load orders data
+  useEffect(() => {
+    loadOrders()
+  }, [])
+
+  const loadOrders = async () => {
+    setLoading(true)
+    try {
+      const [active, past] = await Promise.all([orderService.getActiveOrders(), orderService.getPastOrders()])
+
+      setActiveOrders(active)
+      setPastOrders(past)
+    } catch (error) {
+      console.error("Error loading orders:", error)
+      Swal.fire(
+        "Error",
+        "Failed to load orders. Please try again.",
+        'error'
+      )
+    } finally {
+      setLoading(false)
     }
   }
 
-  const getStatusIcon = (status: string) => {
+  const handleOrderStatusUpdate = (data: any) => {
+    const { orderId, status, estimatedDelivery } = data
+
+    // Update active orders
+    setActiveOrders((prev) =>
+      prev.map((order) =>
+        order.id === orderId ? { ...order, status: status as OrderStatus, estimatedDelivery } : order,
+      ),
+    )
+
+    // Show toast notification
+    const statusDisplay = orderService.getStatusDisplay(status)
+    Swal.fire(
+      "Order Update",
+      `Order ${orderId}: ${statusDisplay.label}`,
+      "success"
+    )
+
+    // If order is completed, move to past orders
+    if (status === "DITERIMA" || status === "DICANCEL") {
+      setTimeout(() => {
+        loadOrders() // Refresh to move completed orders
+      }, 1000)
+    }
+  }
+
+  const handleDriverAssigned = (data: any) => {
+    const { orderId, driver } = data
+
+    setActiveOrders((prev) =>
+      prev.map((order) =>
+        order.id === orderId ? { ...order, driver, status: "DRIVERASSIGNED" as OrderStatus } : order,
+      ),
+    )
+
+    Swal.fire(
+      "Driver Assigned",
+      `${driver.name} will deliver your order`,
+      'success'
+    )
+  }
+
+  const handleCancelOrder = async (orderId: string) => {
+    const success = await orderService.cancelOrder(orderId, "Customer cancelled")
+
+    if (success) {
+      Swal.fire(
+        "Order Cancelled",
+        "Your order has been cancelled successfully", 'success'
+      )
+      loadOrders()
+    } else {
+      Swal.fire(
+        "Error",
+        "Failed to cancel order. Please try again.",
+        "error"
+      )
+    }
+  }
+
+  const handleReorder = async (orderId: string) => {
+    const newOrderId = await orderService.reorder(orderId)
+
+    if (newOrderId) {
+      // toast({
+      //   title: "Order Placed",
+      //   description: `New order ${newOrderId} has been placed`,
+      // })
+      Swal.fire("Order Placed", `New order ${newOrderId} has been placed`, 'success')
+      loadOrders()
+    } else {
+      // toast({
+      //   title: "Error",
+      //   description: "Failed to place order. Please try again.",
+      //   variant: "destructive",
+      // })
+      Swal.fire(
+        "Error", "Failed to place order. Please try again.", 'error'
+      )
+    }
+  }
+
+  const getStatusBadge = (status: OrderStatus) => {
+    const statusDisplay = orderService.getStatusDisplay(status)
+    return (
+      <Badge variant="outline" className={`${statusDisplay.color} ${statusDisplay.bgColor}`}>
+        {statusDisplay.label}
+      </Badge>
+    )
+  }
+
+  const getStatusIcon = (status: OrderStatus) => {
     switch (status) {
-      case "preparing":
+      case "BELUMBAYAR":
+        return <AlertCircle className="h-5 w-5 text-yellow-600" />
+      case "DIPROSES":
         return <Package className="h-5 w-5 text-blue-600" />
-      case "on_the_way":
-        return <Bike className="h-5 w-5 text-amber-600" />
-      case "delivered":
-        return <CheckCircle2 className="h-5 w-5 text-green-600" />
-      case "cancelled":
+      case "MENCARI":
+        return <Loader2 className="h-5 w-5 text-orange-600 animate-spin" />
+      case "DRIVERASSIGNED":
+        return <Bike className="h-5 w-5 text-green-600" />
+      case "DIKIRIM":
+        return <Bike className="h-5 w-5 text-indigo-600" />
+      case "DITERIMA":
+        return <Package className="h-5 w-5 text-green-600" />
+      case "DICANCEL":
         return <AlertCircle className="h-5 w-5 text-red-600" />
       default:
         return <ShoppingBag className="h-5 w-5" />
@@ -217,7 +222,7 @@ export default function OrdersPage() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
-    return date.toLocaleDateString("en-ID", {
+    return date.toLocaleDateString("id-ID", {
       day: "numeric",
       month: "short",
       year: "numeric",
@@ -226,19 +231,75 @@ export default function OrdersPage() {
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString)
-    return date.toLocaleTimeString("en-ID", {
+    return date.toLocaleTimeString("id-ID", {
       hour: "2-digit",
       minute: "2-digit",
-      hour12: false,
     })
   }
 
-  const calculateProgress = (order: any) => {
-    const completedSteps = order.trackingSteps.filter((step: any) => step.completed).length
-    return (completedSteps / order.trackingSteps.length) * 100
+  const handleOrderCancelled = (data: any) => {
+    const { orderId, reason } = data
+
+    setActiveOrders((prev) =>
+      prev.map((order) =>
+        order.id === orderId ? { ...order, status: "DICANCEL" as OrderStatus, cancelReason: reason } : order,
+      ),
+    )
+
+    // toast({
+    //   title: "Order Cancelled",
+    //   description: `Order ${orderId} has been cancelled`,
+    //   variant: "destructive",
+    // })
+
+    // Move to past orders after delay
+    setTimeout(() => loadOrders(), 1000)
+  }
+
+  const handleOrderCompleted = (data: any) => {
+    const { orderId } = data
+
+    setActiveOrders((prev) =>
+      prev.map((order) => (order.id === orderId ? { ...order, status: "DITERIMA" as OrderStatus } : order)),
+    )
+
+    // toast({
+    //   title: "Order Completed",
+    //   description: `Order ${orderId} has been delivered successfully!`,
+    // })
+
+    // Move to past orders after delay
+    setTimeout(() => loadOrders(), 2000)
   }
 
   const renderActiveOrders = () => {
+    if (loading) {
+      return (
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <Card key={i} className="overflow-hidden">
+              <CardContent className="p-4">
+                <div className="animate-pulse">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="h-12 w-12 bg-gray-200 rounded-full"></div>
+                    <div className="space-y-2">
+                      <div className="h-4 bg-gray-200 rounded w-32"></div>
+                      <div className="h-3 bg-gray-200 rounded w-24"></div>
+                    </div>
+                  </div>
+                  <div className="h-2 bg-gray-200 rounded mb-4"></div>
+                  <div className="space-y-2">
+                    <div className="h-3 bg-gray-200 rounded"></div>
+                    <div className="h-3 bg-gray-200 rounded w-3/4"></div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )
+    }
+
     if (activeOrders.length === 0) {
       return (
         <div className="text-center py-12">
@@ -286,10 +347,16 @@ export default function OrdersPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>View Details</DropdownMenuItem>
+                        {orderService.canTrackOrder(order.status) && (
+                          <DropdownMenuItem asChild>
+                            <Link href={`/pembeli/tracking/${order.id}`}>Track Order</Link>
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem>Contact Support</DropdownMenuItem>
-                        {order.status !== "cancelled" && order.status !== "delivered" && (
-                          <DropdownMenuItem className="text-red-600">Cancel Order</DropdownMenuItem>
+                        {orderService.canCancelOrder(order.status) && (
+                          <DropdownMenuItem className="text-red-600" onClick={() => handleCancelOrder(order.id)}>
+                            Cancel Order
+                          </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -299,29 +366,69 @@ export default function OrdersPage() {
                 <div className="mt-3">
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-muted-foreground">Order Progress</span>
-                    <span className="font-medium">{Math.round(calculateProgress(order))}%</span>
+                    {order.status !== "DICANCEL" ? (
+                      <span className="font-medium">
+                        Step {orderService.getActiveStep(order.status)} of {orderService.getTotalSteps()}
+                      </span>
+                    ) : (
+                      <span className="font-medium text-red-600">Cancelled</span>
+                    )}
                   </div>
-                  <Progress value={calculateProgress(order)} className="h-2" />
+                  <Progress value={orderService.getStatusProgress(order.status)} className="h-2" />
                 </div>
 
-                <div className="mt-3 space-y-1">
-                  {order.trackingSteps.map((step, index) => (
-                    <div key={step.id} className="flex items-center gap-2 text-sm">
-                      {step.completed ? (
-                        <CheckCircle2 className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <div
-                          className={`h-4 w-4 rounded-full border ${index === order.trackingSteps.findIndex((s) => !s.completed) ? "border-primary" : "border-muted"}`}
-                        />
-                      )}
-                      <span className={step.completed ? "text-foreground" : "text-muted-foreground"}>{step.title}</span>
-                      {step.time && <span className="text-muted-foreground ml-auto">{step.time}</span>}
+                {order.status !== "DICANCEL" && (
+                  <div className="mt-2 flex justify-between text-xs text-muted-foreground">
+                    <div
+                      className={`flex flex-col items-center ${["BELUMBAYAR", "DIPROSES", "MENCARI", "DRIVERASSIGNED", "DIKIRIM", "DITERIMA"].indexOf(order.status) >= 0 ? "text-primary font-medium" : ""}`}
+                    >
+                      <div
+                        className={`w-2 h-2 rounded-full mb-1 ${["BELUMBAYAR", "DIPROSES", "MENCARI", "DRIVERASSIGNED", "DIKIRIM", "DITERIMA"].indexOf(order.status) >= 0 ? "bg-primary" : "bg-muted"}`}
+                      ></div>
+                      <span>Order</span>
                     </div>
-                  ))}
+                    <div
+                      className={`flex flex-col items-center ${["DIPROSES", "MENCARI", "DRIVERASSIGNED", "DIKIRIM", "DITERIMA"].indexOf(order.status) >= 0 ? "text-primary font-medium" : ""}`}
+                    >
+                      <div
+                        className={`w-2 h-2 rounded-full mb-1 ${["DIPROSES", "MENCARI", "DRIVERASSIGNED", "DIKIRIM", "DITERIMA"].indexOf(order.status) >= 0 ? "bg-primary" : "bg-muted"}`}
+                      ></div>
+                      <span>Prepare</span>
+                    </div>
+                    <div
+                      className={`flex flex-col items-center ${["MENCARI", "DRIVERASSIGNED", "DIKIRIM", "DITERIMA"].indexOf(order.status) >= 0 ? "text-primary font-medium" : ""}`}
+                    >
+                      <div
+                        className={`w-2 h-2 rounded-full mb-1 ${["MENCARI", "DRIVERASSIGNED", "DIKIRIM", "DITERIMA"].indexOf(order.status) >= 0 ? "bg-primary" : "bg-muted"}`}
+                      ></div>
+                      <span>Driver</span>
+                    </div>
+                    <div
+                      className={`flex flex-col items-center ${["DIKIRIM", "DITERIMA"].indexOf(order.status) >= 0 ? "text-primary font-medium" : ""}`}
+                    >
+                      <div
+                        className={`w-2 h-2 rounded-full mb-1 ${["DIKIRIM", "DITERIMA"].indexOf(order.status) >= 0 ? "bg-primary" : "bg-muted"}`}
+                      ></div>
+                      <span>Delivery</span>
+                    </div>
+                    <div
+                      className={`flex flex-col items-center ${order.status === "DITERIMA" ? "text-primary font-medium" : ""}`}
+                    >
+                      <div
+                        className={`w-2 h-2 rounded-full mb-1 ${order.status === "DITERIMA" ? "bg-primary" : "bg-muted"}`}
+                      ></div>
+                      <span>Complete</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-3 flex items-center gap-2">
+                  {getStatusIcon(order.status)}
+                  <span className="text-sm font-medium">{orderService.getStatusDisplay(order.status).label}</span>
                 </div>
               </div>
 
-              {order.status === "on_the_way" && (
+              {order.driver && (order.status === "DRIVERASSIGNED" || order.status === "DIKIRIM") && (
                 <div className="p-4 border-b bg-muted/30">
                   <div className="flex items-center gap-3">
                     <div className="relative h-12 w-12 rounded-full overflow-hidden">
@@ -336,15 +443,17 @@ export default function OrdersPage() {
                       <h4 className="font-medium">{order.driver.name}</h4>
                       <p className="text-sm text-muted-foreground">{order.driver.vehicleNumber}</p>
                     </div>
-                    <Button variant="outline" size="sm">
-                      Contact
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={`tel:${order.driver.phone}`}>
+                        <Phone className="h-4 w-4" />
+                      </a>
                     </Button>
                   </div>
                 </div>
               )}
 
               <div className="p-4">
-                <div className="flex items-start gap-2">
+                <div className="flex items-start gap-2 mb-3">
                   <MapPin className="h-5 w-5 text-muted-foreground mt-0.5" />
                   <div>
                     <h4 className="font-medium">Delivery Address</h4>
@@ -352,21 +461,11 @@ export default function OrdersPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 flex items-start gap-2">
-                  <Clock className="h-5 w-5 text-muted-foreground mt-0.5" />
-                  <div>
-                    <h4 className="font-medium">Estimated Delivery</h4>
-                    <p className="text-sm text-muted-foreground">
-                      {formatTime(order.estimatedDelivery)} ({formatDate(order.estimatedDelivery)})
-                    </p>
-                  </div>
-                </div>
-
                 <Separator className="my-3" />
 
                 <div className="space-y-2">
                   <h4 className="font-medium">Order Summary</h4>
-                  {order.items.map((item, index) => (
+                  {order.items.map((item:any, index:any) => (
                     <div key={index} className="flex justify-between text-sm">
                       <span>
                         {item.quantity}x {item.name}
@@ -389,6 +488,32 @@ export default function OrdersPage() {
   }
 
   const renderPastOrders = () => {
+    if (loading) {
+      return (
+        <div className="space-y-4">
+          {[1, 2].map((i) => (
+            <Card key={i} className="overflow-hidden">
+              <CardContent className="p-4">
+                <div className="animate-pulse">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="h-12 w-12 bg-gray-200 rounded-full"></div>
+                    <div className="space-y-2">
+                      <div className="h-4 bg-gray-200 rounded w-32"></div>
+                      <div className="h-3 bg-gray-200 rounded w-24"></div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-3 bg-gray-200 rounded"></div>
+                    <div className="h-3 bg-gray-200 rounded w-3/4"></div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )
+    }
+
     if (pastOrders.length === 0) {
       return (
         <div className="text-center py-12">
@@ -436,11 +561,11 @@ export default function OrdersPage() {
                   <div className="flex items-center justify-between">
                     <h4 className="font-medium">Order Summary</h4>
                     <span className="text-sm text-muted-foreground">
-                      {order.items.reduce((acc, item) => acc + item.quantity, 0)} items
+                      {order.items.reduce((acc:any, item:any) => acc + item.quantity, 0)} items
                     </span>
                   </div>
 
-                  {order.items.slice(0, 2).map((item, index) => (
+                  {order.items.slice(0, 2).map((item:any, index:any) => (
                     <div key={index} className="flex justify-between text-sm">
                       <span>
                         {item.quantity}x {item.name}
@@ -459,7 +584,7 @@ export default function OrdersPage() {
                   </div>
                 </div>
 
-                {order.status === "cancelled" && (
+                {order.status === "DICANCEL" && order.cancelReason && (
                   <div className="mt-3 p-2 bg-red-50 text-red-600 rounded-md text-sm">
                     <span className="font-medium">Cancelled:</span> {order.cancelReason}
                   </div>
@@ -467,10 +592,10 @@ export default function OrdersPage() {
 
                 <div className="mt-4 flex gap-2">
                   <Button variant="outline" className="flex-1" asChild>
-                    <Link href={`/restaurant/${order.id.split("-")[1]}`}>View Restaurant</Link>
+                    <Link href={`/restaurant/${order.restaurantId}`}>View Restaurant</Link>
                   </Button>
-                  {order.status === "delivered" && (
-                    <Button className="flex-1">
+                  {order.status === "DITERIMA" && (
+                    <Button className="flex-1" onClick={() => handleReorder(order.id)}>
                       <RotateCw className="h-4 w-4 mr-2" />
                       Order Again
                     </Button>
@@ -488,7 +613,14 @@ export default function OrdersPage() {
     <div className="pb-20">
       <div className="sticky top-0 z-10 bg-background border-b">
         <div className="p-4">
-          <h1 className="text-2xl font-bold">My Orders</h1>
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold">My Orders</h1>
+            <div className="flex items-center gap-2">
+              {wsStatus === "connected" && <Wifi className="h-5 w-5 text-green-600" />}
+              {wsStatus === "disconnected" && <WifiOff className="h-5 w-5 text-red-600" />}
+              {wsStatus === "connecting" && <Loader2 className="h-5 w-5 text-orange-600 animate-spin" />}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -499,13 +631,13 @@ export default function OrdersPage() {
               value="active"
               className="flex-1 rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary"
             >
-              Active
+              Active ({activeOrders.length})
             </TabsTrigger>
             <TabsTrigger
               value="history"
               className="flex-1 rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary"
             >
-              History
+              History ({pastOrders.length})
             </TabsTrigger>
           </TabsList>
         </div>
@@ -525,4 +657,3 @@ export default function OrdersPage() {
     </div>
   )
 }
-

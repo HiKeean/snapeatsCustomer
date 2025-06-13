@@ -32,7 +32,7 @@ export default function QRISPaymentPage() {
 
   // Generate QR code URL
   const getQRCodeUrl = useCallback(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://192.168.110.254:3000"
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://192.168.18.30:3002"
     const successUrl = `${baseUrl}/pembeli/payment/qris/success/${paymentId}`
     return `https://quickchart.io/qr?text=${encodeURIComponent(successUrl)}&size=250&dark=000000&light=ffffff&margin=2`
   }, [paymentId])

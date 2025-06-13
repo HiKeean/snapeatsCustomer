@@ -21,7 +21,7 @@ interface Driver {
   name: string
   phone: string
   photo: string
-  plate: string
+  platNomor: string
   vehicle: string
   rating: number
   lat: number
@@ -29,17 +29,17 @@ interface Driver {
 }
 
 export default function CheckoutPage() {
-    const router = useRouter()
-    const [orderStatus, setOrderStatus] = useState<OrderStatus | null>(null)
-    const [estimatedTime, setEstimatedTime] = useState(25)
-    const [driver, setDriver] = useState<Driver | null>(null)
-    const [transactionId, setTransactionId] = useState<string | null>(null)
-    const [isLoading, setIsLoading] = useState(true)
-    const [wsConnected, setWsConnected] = useState(false)
-    const [wsError, setWsError] = useState<string | null>(null)
-    const params = useParams()
-    const storedTransactionId = params.id as string
-    
+  const router = useRouter()
+  const [orderStatus, setOrderStatus] = useState<OrderStatus | null>(null)
+  const [estimatedTime, setEstimatedTime] = useState(25)
+  const [driver, setDriver] = useState<Driver | null>(null)
+  const [transactionId, setTransactionId] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [wsConnected, setWsConnected] = useState(false)
+  const [wsError, setWsError] = useState<string | null>(null)
+  const params = useParams()
+  const storedTransactionId = params.id as string
+
   // Get WebSocket connection
   const { status: wsStatus, subscribe, send } = useStompWebSocket()
 
@@ -72,7 +72,7 @@ export default function CheckoutPage() {
         setWsError(null)
 
         // Subscribe to order status updates
-        subscription = await wsService.subscribe(`/topic/order/${storedTransactionId}/status`, (message:any) => {
+        subscription = await wsService.subscribe(`/topic/order/${storedTransactionId}/status`, (message: any) => {
           console.log("Received order status update:", message)
           setIsLoading(false)
 
@@ -160,7 +160,7 @@ export default function CheckoutPage() {
           <div className="text-center">
             <div className="relative w-64 h-64 mx-auto mb-6">
               <Image
-                src={getImageUrl("/bambang/memasak.png")}
+                src={getImageUrl("/bambang/memasak.png") || "/placeholder.svg"}
                 alt="Chef preparing food"
                 fill
                 className="object-contain"
@@ -179,9 +179,12 @@ export default function CheckoutPage() {
         return (
           <div className="text-center">
             <div className="relative w-64 h-64 mx-auto mb-6">
-              <Image  
-                src={getImageUrl("/bambang/mencarikurir.png")}
-                alt="Food ready" fill className="object-contain" />
+              <Image
+                src={getImageUrl("/bambang/mencarikurir.png") || "/placeholder.svg"}
+                alt="Food ready"
+                fill
+                className="object-contain"
+              />
             </div>
             <h2 className="text-2xl font-bold mb-2">Order Ready!</h2>
             <p className="text-muted-foreground mb-6">Your order is ready and we're looking for a driver</p>
@@ -197,7 +200,7 @@ export default function CheckoutPage() {
           <div className="text-center">
             <div className="relative w-64 h-64 mx-auto mb-6">
               <Image
-                src={getImageUrl("/bambang/deliveryfood.png")}
+                src={getImageUrl("/bambang/deliveryfood.png") || "/placeholder.svg"}
                 alt="Driver assigned"
                 fill
                 className="object-contain"
@@ -205,7 +208,6 @@ export default function CheckoutPage() {
             </div>
             <h2 className="text-2xl font-bold mb-2">Driver Assigned!</h2>
             <p className="text-muted-foreground mb-6">Your driver is on the way to pick up your order</p>
-
             {driver && (
               <Card className="mb-4">
                 <CardContent className="p-4">
@@ -215,9 +217,7 @@ export default function CheckoutPage() {
                     </div>
                     <div className="flex-1">
                       <h3 className="font-medium">{driver.name}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {driver.vehicle} • {driver.plate}
-                      </p>
+                      <p className="text-sm text-muted-foreground">Motor • {driver.platNomor}</p>
                       <div className="flex items-center mt-1">
                         <span className="text-sm font-medium mr-1">{driver.rating}</span>
                         <div className="flex">
@@ -237,16 +237,45 @@ export default function CheckoutPage() {
                       </div>
                     </div>
                     <div className="flex flex-col gap-2">
-                      <Button size="icon" variant="outline" className="h-10 w-10 rounded-full">
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-10 w-10 rounded-full"
+                        onClick={() => {
+                          if (driver.phone) {
+                            window.location.href = `tel:${driver.phone}`
+                          }
+                        }}
+                      >
                         <Phone className="h-5 w-5" />
                       </Button>
-                      <Button size="icon" variant="outline" className="h-10 w-10 rounded-full">
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-10 w-10 rounded-full"
+                        onClick={() => {
+                          if (driver.phone) {
+                            window.location.href = `sms:${driver.phone}`
+                          }
+                        }}
+                      >
                         <MessageSquare className="h-5 w-5" />
                       </Button>
                     </div>
                   </div>
                 </CardContent>
               </Card>
+            )}
+
+            {/* Add Track Driver Button */}
+            {driver && (
+              <Button
+                variant="destructive"
+                className="w-full mb-6"
+                onClick={() => router.push(`/pembeli/tracking/${storedTransactionId}`)}
+              >
+                Track Driver
+              </Button>
             )}
 
             <div className="flex items-center justify-center gap-2 text-lg font-medium">

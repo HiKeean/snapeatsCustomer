@@ -68,13 +68,45 @@ export async function checkout(entity:checkoutDto) {
   console.log(`response: ${response.ok}`);
 
   // Cek kalau responsenya tidak OK
+  // if (!response.ok) {
+  //   console.log("response not ok");
+
+  //   if (response.status === 403) {
+  //     const temp = await refresh_token();
+  //     if (temp) {
+  //       return await checkout(entity);
+  //     }
+  //   }
+
+  //   return undefined;
+  // }
+
+  // Baru parse JSON kalau response OK
+  const data = await response.json();
+//   console.log(data);
+  return data.data as responseCheckoutDto;
+}
+
+export async function getorderdet(idTrans:string){
+  const token = await getToken();
+  const response = await fetch(`${API_TRANSAKSI}pembeli/getorderdet?idTrans=${idTrans}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
+  });
+
+  console.log(`response: ${response.ok}`);
+
+  // Cek kalau responsenya tidak OK
   if (!response.ok) {
     console.log("response not ok");
 
     if (response.status === 403) {
       const temp = await refresh_token();
       if (temp) {
-        return await checkout(entity);
+        return await getorderdet(idTrans);
       }
     }
 
@@ -84,5 +116,37 @@ export async function checkout(entity:checkoutDto) {
   // Baru parse JSON kalau response OK
   const data = await response.json();
 //   console.log(data);
-  return data.data as responseCheckoutDto;
+  return data.data;
+}
+
+export async function getdriverdet(idTrans:string){
+  const token = await getToken();
+  const response = await fetch(`${API_TRANSAKSI}pembeli/getdriverdet?idTrans=${idTrans}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
+  });
+
+  console.log(`response: ${response.ok}`);
+
+  // Cek kalau responsenya tidak OK
+  if (!response.ok) {
+    console.log("response not ok");
+
+    if (response.status === 403) {
+      const temp = await refresh_token();
+      if (temp) {
+        return await getorderdet(idTrans);
+      }
+    }
+
+    return undefined;
+  }
+
+  // Baru parse JSON kalau response OK
+  const data = await response.json();
+//   console.log(data);
+  return data.data;
 }

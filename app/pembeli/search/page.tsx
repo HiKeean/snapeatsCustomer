@@ -326,7 +326,7 @@ export default function SearchPage() {
                   <div className="space-y-4">
                     {restaurants.length > 0 ? (
                       restaurants.map((restaurant) => (
-                        <Link href={`/restaurant/${restaurant.id}`} key={restaurant.id}>
+                        <Link href={`/pembeli/restaurant/${restaurant.id}`} key={restaurant.id}>
                           <div className="flex items-center gap-3 border rounded-lg p-3 hover:bg-accent">
                             <div className="relative h-16 w-16 rounded-md overflow-hidden">
                               <Image
