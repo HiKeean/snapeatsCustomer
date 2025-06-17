@@ -352,6 +352,9 @@ export default function DriverTrackingPage() {
   const getDriverStatusText = () => {
     if (!driver) return "Loading..."
     console.log(`status = ${driver.status}`)
+    if(driver.status == 'arrived'){
+      router.push(`/pembeli/tracking/${orderId}/completed`)
+    }
     switch (driver.status) {
       case "going_to_restaurant":
         return "Going to restaurant"
