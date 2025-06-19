@@ -117,7 +117,7 @@ export async function login(email: string, password: string, role: string) {
       if(data.message == "fetch failed"){
         throw new Error("Internal Server Error")
       }
-      throw new Error(data.message || "Login failed")
+      throw new Error("Login Failed")
     }
 
 
