@@ -1,488 +1,700 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
-import Link from "next/link"
-import { BottomNavigation } from "@/components/bottom-navigation"
+import { useEffect, useState, useRef, useCallback } from "react"
+import { useRouter, useParams } from "next/navigation"
+import Image from "next/image"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
-import { Progress } from "@/components/ui/progress"
+import { ArrowLeft, Phone, MessageSquare, Navigation, MapPin, Clock, Crosshair } from "lucide-react"
+import { GoogleMap, useJsApiLoader, Marker } from "@react-google-maps/api"
+import WebSocketService from "@/lib/websocket-service"
+import Swal from "sweetalert2"
 import { toast } from "sonner"
-import { orderService, type OrderDtoPembeli } from "@/lib/order-service"
+import { getdriverdet, getorderdet } from "@/services/transactionService"
 
-import {
-  MoreVertical,
-  ShoppingBag,
-  CheckCircle2,
-  Bike,
-  Package,
-  AlertCircle,
-  RotateCw,
-  Loader2,
-  RefreshCw,
-  Clock,
-} from "lucide-react"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+// Driver location update from WebSocket
+interface LocationUpdate {
+  lat: number
+  lng: number
+  heading: number
+  speed: number
+  timestamp: string
+}
 
-export default function OrdersPage() {
-  const [activeTab, setActiveTab] = useState("active")
-  const [allOrders, setAllOrders] = useState<OrderDtoPembeli[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+// Driver information
+interface Driver {
+  id: string
+  name: string
+  phone: string
+  photo: string
+  plate: string
+  vehicle: string
+  rating: number
+  status: "going_to_restaurant" | "at_restaurant" | "going_to_customer" | "arrived"
+}
 
-  // Map API status to display status - updated for your Indonesian status values
-  const mapStatus = (statusTransaksi: string) => {
-    switch (statusTransaksi.toUpperCase()) {
-      case "BELUMBAYAR":
-        return "pending_payment"
-      case "DIPROSES":
-      case "PREPARING":
-        return "preparing"
-      case "ON_THE_WAY":
-      case "PICKED_UP":
-      case "DIANTAR":
-        return "on_the_way"
-      case "DELIVERED":
-      case "COMPLETED":
-      case "SELESAI":
-        return "delivered"
-      case "CANCELLED":
-      case "DIBATALKAN":
-        return "cancelled"
-      default:
-        return "preparing"
-    }
+// Location interface
+interface Location {
+  lat: number
+  lng: number
+  address: string
+}
+
+// Order details interface
+interface OrderItem {
+  name: string
+  quantity: number
+  price?: number
+}
+
+interface OrderDetails {
+  id: string
+  restaurantName: string
+  restaurantLocation: Location
+  deliveryLocation: Location
+  paymentMethod: string
+  items: OrderItem[]
+  subtotal: number
+  deliveryFee: number
+  total: number
+}
+
+export default function DriverTrackingPage() {
+  const router = useRouter()
+  const params = useParams()
+  const orderId = params.id as string
+
+  // Map state
+  const mapRef = useRef<google.maps.Map | null>(null)
+  const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null)
+  const [driverLocation, setDriverLocation] = useState<google.maps.LatLngLiteral | null>(null)
+  const [restaurantLocation, setRestaurantLocation] = useState<google.maps.LatLngLiteral | null>(null)
+  const [deliveryLocation, setDeliveryLocation] = useState<google.maps.LatLngLiteral | null>(null)
+  const [isDriverArrived, setIsDriverArrived] = useState(false)
+  const [estimatedArrival, setEstimatedArrival] = useState(15)
+  const [distance, setDistance] = useState<string>("Calculating...")
+  const [isFollowingDriver, setIsFollowingDriver] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
+
+  // Driver info
+  const [driver, setDriver] = useState<Driver | null>(null)
+
+  // WebSocket state
+  const [wsConnected, setWsConnected] = useState(false)
+  const [wsError, setWsError] = useState<string | null>(null)
+
+  // Order details
+  const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null)
+  const [tipAmount, setTipAmount] = useState(0)
+  const [selectedTip, setSelectedTip] = useState<number | null>(null)
+
+  // Load Google Maps
+  const libraries: ["places"] = ["places"]
+  const { isLoaded } = useJsApiLoader({
+    id: "google-map-script",
+    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "YOUR_API_KEY",
+    libraries: libraries,
+  })
+
+  // Map container style
+  const mapContainerStyle = {
+    width: "100%",
+    height: "75vh",
   }
 
-  // Safe filtering with useMemo
-  const activeOrders = useMemo(() => {
-    if (!Array.isArray(allOrders)) return []
-    return allOrders.filter((order) => {
-      const status = mapStatus(order.statusTransaksi)
-      return status === "pending_payment" || status === "preparing" || status === "on_the_way"
+  // Handle map load
+  const onMapLoad = useCallback((map: google.maps.Map) => {
+    mapRef.current = map
+
+    // Initialize directions renderer
+    directionsRendererRef.current = new google.maps.DirectionsRenderer({
+      map,
+      suppressMarkers: true, // We'll use custom markers
+      preserveViewport: true, // Don't auto-fit to route
+      polylineOptions: {
+        strokeColor: "#3B82F6",
+        strokeWeight: 5,
+        strokeOpacity: 0.8,
+      },
     })
-  }, [allOrders])
-
-  const pastOrders = useMemo(() => {
-    if (!Array.isArray(allOrders)) return []
-    return allOrders.filter((order) => {
-      const status = mapStatus(order.statusTransaksi)
-      return status === "delivered" || status === "cancelled"
-    })
-  }, [allOrders])
-
-  // Load orders
-  const loadOrders = useCallback(async () => {
-    try {
-      setIsLoading(true)
-      setError(null)
-
-      const orders: OrderDtoPembeli[] = await orderService.getAllOrders(0, 100) // Get all orders
-      setAllOrders(orders || [])
-    } catch (error) {
-      console.error("Failed to load orders:", error)
-      setError("Failed to load orders")
-      toast.error("Failed to load orders")
-    } finally {
-      setIsLoading(false)
-    }
   }, [])
 
-  // Initial load
-  useEffect(() => {
-    loadOrders()
-  }, [loadOrders])
+  // Calculate and display route based on driver status
+  const calculateRoute = useCallback(() => {
+    if (!driverLocation || !mapRef.current || !driver) return
 
-  // Refresh orders
-  const refreshOrders = () => {
-    loadOrders()
-  }
+    const directionsService = new google.maps.DirectionsService()
+    let destination: google.maps.LatLngLiteral
 
-  const getStatusBadge = (status: string) => {
-    const mappedStatus = mapStatus(status)
-    switch (mappedStatus) {
-      case "pending_payment":
-        return (
-          <Badge variant="outline" className="bg-orange-50 text-orange-600 border-orange-200">
-            Belum Bayar
-          </Badge>
-        )
-      case "preparing":
-        return (
-          <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-200">
-            Diproses
-          </Badge>
-        )
-      case "on_the_way":
-        return (
-          <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200">
-            Diantar
-          </Badge>
-        )
-      case "delivered":
-        return (
-          <Badge variant="outline" className="bg-green-50 text-green-600 border-green-200">
-            Selesai
-          </Badge>
-        )
-      case "cancelled":
-        return (
-          <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">
-            Dibatalkan
-          </Badge>
-        )
-      default:
-        return <Badge variant="outline">{status}</Badge>
-    }
-  }
-
-  const getStatusIcon = (status: string) => {
-    const mappedStatus = mapStatus(status)
-    switch (mappedStatus) {
-      case "pending_payment":
-        return <Clock className="h-5 w-5 text-orange-600" />
-      case "preparing":
-        return <Package className="h-5 w-5 text-blue-600" />
-      case "on_the_way":
-        return <Bike className="h-5 w-5 text-amber-600" />
-      case "delivered":
-        return <CheckCircle2 className="h-5 w-5 text-green-600" />
-      case "cancelled":
-        return <AlertCircle className="h-5 w-5 text-red-600" />
-      default:
-        return <ShoppingBag className="h-5 w-5" />
-    }
-  }
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString("id-ID", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    })
-  }
-
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleTimeString("id-ID", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    })
-  }
-
-  // Generate tracking steps based on status
-  const generateTrackingSteps = (status: string) => {
-    const mappedStatus = mapStatus(status)
-    const steps = [
-      { id: 1, title: "Order Confirmed", completed: false, time: "" },
-      { id: 2, title: "Preparing Food", completed: false, time: "" },
-      { id: 3, title: "On The Way", completed: false, time: "" },
-      { id: 4, title: "Delivered", completed: false, time: "" },
-    ]
-
-    switch (mappedStatus) {
-      case "pending_payment":
-        // No steps completed for pending payment
-        break
-      case "preparing":
-        steps[0].completed = true
-        steps[1].completed = true
-        break
-      case "on_the_way":
-        steps[0].completed = true
-        steps[1].completed = true
-        steps[2].completed = true
-        break
-      case "delivered":
-        steps.forEach((step) => (step.completed = true))
-        break
+    // Determine destination based on driver status
+    if (driver.status === "going_to_restaurant" && restaurantLocation) {
+      destination = restaurantLocation
+    } else if ((driver.status === "going_to_customer" || driver.status === "at_restaurant") && deliveryLocation) {
+      destination = deliveryLocation
+    } else {
+      return // No valid destination
     }
 
-    return steps
-  }
+    directionsService.route(
+      {
+        origin: driverLocation,
+        destination: destination,
+        travelMode: google.maps.TravelMode.DRIVING,
+      },
+      (result:any, status:any) => {
+        if (status === google.maps.DirectionsStatus.OK && result) {
+          // Set directions on the renderer
+          if (directionsRendererRef.current) {
+            directionsRendererRef.current.setDirections(result)
+          }
 
-  const calculateProgress = (status: string) => {
-    const steps = generateTrackingSteps(status)
-    const completedSteps = steps.filter((step) => step.completed).length
-    return (completedSteps / steps.length) * 100
-  }
+          // Calculate estimated arrival time
+          const route = result.routes[0]
+          if (route && route.legs.length > 0) {
+            const durationInSeconds = route.legs[0].duration?.value || 0
+            const durationInMinutes = Math.ceil(durationInSeconds / 60)
+            setEstimatedArrival(durationInMinutes)
 
-  const handleCancelOrder = async (orderId: string) => {
+            // Set distance
+            setDistance(route.legs[0].distance?.text || "Unknown")
+
+            // Check if driver has arrived (less than 100 meters)
+            const distanceInMeters = route.legs[0].distance?.value || 0
+            if (distanceInMeters < 100 && !isDriverArrived) {
+              if (driver.status === "going_to_customer") {
+                setIsDriverArrived(true)
+                Swal.fire({
+                  title: "Driver has arrived!",
+                  text: "Your order is being delivered to your doorstep.",
+                  icon: "success",
+                  confirmButtonText: "OK",
+                })
+              }
+            }
+          }
+        } else {
+          console.error("Directions request failed:", status)
+        }
+      },
+    )
+  }, [driverLocation, restaurantLocation, deliveryLocation, driver, orderId, router, isDriverArrived])
+
+  // Update driver location from WebSocket
+  const updateDriverLocation = useCallback(
+    (location: LocationUpdate) => {
+      setDriverLocation({
+        lat: location.lat,
+        lng: location.lng,
+      })
+
+      // Pan map to driver location if following is enabled
+      if (mapRef.current && isFollowingDriver) {
+        mapRef.current.panTo({
+          lat: location.lat,
+          lng: location.lng,
+        })
+      }
+    },
+    [isFollowingDriver],
+  )
+
+  // Fetch order details from API
+  const fetchOrderDetails = async () => {
     try {
-      const success = await orderService.cancelOrder(orderId, "Cancelled by user")
-      if (success) {
-        toast.success("Order cancelled successfully")
-        // Refresh orders
-        refreshOrders()
-      } else {
-        toast.error("Failed to cancel order")
+      const orderData = await getorderdet(orderId)
+      setOrderDetails(orderData)
+
+      // Set restaurant and delivery locations
+      if (orderData.restaurantLocation) {
+        setRestaurantLocation({
+          lat: orderData.restaurantLocation.lat,
+          lng: orderData.restaurantLocation.lng,
+        })
+      }
+
+      if (orderData.deliveryLocation) {
+        setDeliveryLocation({
+          lat: orderData.deliveryLocation.lat,
+          lng: orderData.deliveryLocation.lng,
+        })
       }
     } catch (error) {
-      console.error("Error cancelling order:", error)
-      toast.error("Failed to cancel order")
+      console.error("Error fetching order details:", error)
     }
   }
 
-  const renderOrderCard = (order: OrderDtoPembeli, showTracking = false) => {
-    const trackingSteps = generateTrackingSteps(order.statusTransaksi)
-    const mappedStatus = mapStatus(order.statusTransaksi)
+  // Fetch initial driver data from API
+  useEffect(() => {
+    const fetchDriverData = async () => {
+      try {
+        setWsError(null)
 
+        const driverData = await getdriverdet(orderId)
+
+        // Set driver info
+        setDriver({
+          id: driverData.id,
+          name: driverData.name,
+          phone: driverData.phone,
+          photo: driverData.photo || "/placeholder.svg?height=64&width=64",
+          plate: driverData.plate,
+          vehicle: driverData.vehicle,
+          rating: driverData.rating || 4.8,
+          status: driverData.status || "going_to_restaurant",
+        })
+
+        // Set initial driver location
+        if (driverData.lat && driverData.lng) {
+          setDriverLocation({
+            lat: driverData.lat,
+            lng: driverData.lng,
+          })
+
+          // Center map on driver location
+          if (mapRef.current) {
+            mapRef.current.panTo({
+              lat: driverData.lat,
+              lng: driverData.lng,
+            })
+            mapRef.current.setZoom(16)
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching driver data:", error)
+        setWsError("Failed to load driver information")
+      }
+    }
+
+    if (orderId) {
+      fetchDriverData()
+    }
+  }, [orderId])
+
+  // Connect to WebSocket for real-time location updates
+  useEffect(() => {
+    if (!orderId || !driver) return
+
+    const wsService = WebSocketService.getInstance()
+    let locationSubscription: { unsubscribe: () => void } | null = null
+    let statusSubscription: { unsubscribe: () => void } | null = null
+
+    const connectAndSubscribe = async () => {
+      try {
+        // Connect to WebSocket
+        await wsService.connect()
+        setWsConnected(true)
+        setWsError(null)
+
+        // Subscribe to driver location updates
+        locationSubscription = await wsService.subscribe(`/topic/transaction/${orderId}/location`, (message) => {
+          console.log("Received driver location update:", message)
+          updateDriverLocation(message)
+        })
+
+        // Subscribe to order status updates
+        statusSubscription = await wsService.subscribe(`/topic/order/${orderId}/status`, (message: any) => {
+          console.log("Received order status update:", message)
+          setIsLoading(false)
+
+          // Update driver status based on the message
+          if (message.driver && driver) {
+            setDriver({
+              id: message.driver.id,
+              name: message.driver.name,
+              phone: message.driver.phone,
+              photo: message.driver.photo || "/placeholder.svg?height=64&width=64",
+              plate: message.driver.platNomor,
+              vehicle: "motor",
+              rating: message.driver.rating == null? 5 : message.driver.rating || 4.8,
+              status: message.status == "driver_assigned" ? "at_restaurant" : message.status == "on_the_way"? "going_to_customer" : message.status
+            })
+          }
+        })
+      } catch (error) {
+        console.error("WebSocket connection error:", error)
+        setWsConnected(false)
+        setWsError("Failed to connect to real-time updates. Retrying...")
+
+        // Retry connection after 5 seconds
+        setTimeout(connectAndSubscribe, 5000)
+      }
+    }
+
+    // Connect to WebSocket only after we have driver data
+    connectAndSubscribe()
+
+    // Cleanup function
+    return () => {
+      if (locationSubscription) {
+        locationSubscription.unsubscribe()
+      }
+      if (statusSubscription) {
+        statusSubscription.unsubscribe()
+      }
+    }
+  }, [orderId, driver, updateDriverLocation])
+
+  // Calculate route when driver location changes or locations are loaded
+  useEffect(() => {
+    if (driverLocation && (restaurantLocation || deliveryLocation)) {
+      calculateRoute()
+    }
+  }, [driverLocation, restaurantLocation, deliveryLocation, calculateRoute])
+
+  // Fetch order details on component mount
+  useEffect(() => {
+    if (orderId) {
+      fetchOrderDetails()
+    }
+  }, [orderId])
+
+  // Get driver status text
+  const getDriverStatusText = () => {
+    if (!driver) return "Loading..."
+    console.log(`status = ${driver.status}`)
+    switch (driver.status) {
+      case "going_to_restaurant":
+        return "Going to restaurant"
+      case "at_restaurant":
+        return "At restaurant"
+      case "going_to_customer":
+        return "On the way to you"
+      case "arrived":
+        return "Arrived"
+      default:
+        return "On the way"
+    }
+  }
+
+  // Toggle driver following
+  const toggleFollowDriver = () => {
+    setIsFollowingDriver((prev) => !prev)
+    if (!isFollowingDriver && driverLocation) {
+      // If turning following on, immediately center on driver
+      if (mapRef.current) {
+        mapRef.current.panTo(driverLocation)
+      }
+    }
+    toast.success(isFollowingDriver ? "Map following disabled" : "Map now following driver location")
+  }
+
+  // If Google Maps is not loaded yet
+  if (!isLoaded) {
     return (
-      <Card key={order.id} className="overflow-hidden">
-        <CardContent className="p-0">
-          <div className="p-4 border-b">
-            <div className="flex justify-between items-start">
-              <div className="flex items-center gap-3">
-                <div className="relative h-12 w-12 rounded-full overflow-hidden bg-muted">
-                  <div className="w-full h-full flex items-center justify-center">
-                    <ShoppingBag className="h-6 w-6 text-muted-foreground" />
-                  </div>
-                </div>
-                <div>
-                  <h3 className="font-medium">{order.penjual.name}</h3>
-                  <div className="flex items-center text-sm text-muted-foreground">
-                    <span className="mr-2">{order.id}</span>
-                    <span className="mr-2">•</span>
-                    <span>{formatDate(order.orderTime)}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {getStatusBadge(order.statusTransaksi)}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem>View Details</DropdownMenuItem>
-                    <DropdownMenuItem>Contact Support</DropdownMenuItem>
-                    {mappedStatus !== "cancelled" && mappedStatus !== "delivered" && (
-                      <DropdownMenuItem className="text-red-600" onClick={() => handleCancelOrder(order.id)}>
-                        Cancel Order
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
-
-            {showTracking && (mappedStatus === "preparing" || mappedStatus === "on_the_way") && (
-              <>
-                <div className="mt-3">
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-muted-foreground">Order Progress</span>
-                    <span className="font-medium">{Math.round(calculateProgress(order.statusTransaksi))}%</span>
-                  </div>
-                  <Progress value={calculateProgress(order.statusTransaksi)} className="h-2" />
-                </div>
-
-                <div className="mt-3 space-y-1">
-                  {trackingSteps.map((step, index) => (
-                    <div key={step.id} className="flex items-center gap-2 text-sm">
-                      {step.completed ? (
-                        <CheckCircle2 className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <div
-                          className={`h-4 w-4 rounded-full border ${index === trackingSteps.findIndex((s) => !s.completed) ? "border-primary" : "border-muted"}`}
-                        />
-                      )}
-                      <span className={step.completed ? "text-foreground" : "text-muted-foreground"}>{step.title}</span>
-                      {step.time && <span className="text-muted-foreground ml-auto">{step.time}</span>}
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-
-          {showTracking && mappedStatus === "on_the_way" && order.driver && order.driver.name && (
-            <div className="p-4 border-b bg-muted/30">
-              <div className="flex items-center gap-3">
-                <div className="relative h-12 w-12 rounded-full overflow-hidden bg-muted">
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Bike className="h-6 w-6 text-muted-foreground" />
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <h4 className="font-medium">{order.driver.name}</h4>
-                  <p className="text-sm text-muted-foreground">{order.driver.vehicleNumber}</p>
-                </div>
-                <Button variant="outline" size="sm">
-                  <a href={`tel:${order.driver.noHp}`}>Contact</a>
-                </Button>
-              </div>
-            </div>
-          )}
-
-          <div className="p-4">
-            <div className="flex items-start gap-2 mb-3">
-              <ShoppingBag className="h-5 w-5 text-muted-foreground mt-0.5" />
-              <div>
-                <h4 className="font-medium">Seller Contact</h4>
-                <p className="text-sm text-muted-foreground">{order.penjual.noHp}</p>
-              </div>
-            </div>
-
-            <Separator className="my-3" />
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium">Order Summary</h4>
-                <span className="text-sm text-muted-foreground">
-                  {order.detailItems.reduce((acc, item) => acc + item.quantity, 0)} items
-                </span>
-              </div>
-
-              {order.detailItems.slice(0, 2).map((item, index) => (
-                <div key={index} className="flex justify-between text-sm">
-                  <span>
-                    {item.quantity}x {item.name}
-                  </span>
-                  <span>Rp {item.harga.toLocaleString()}</span>
-                </div>
-              ))}
-
-              {order.detailItems.length > 2 && (
-                <div className="text-sm text-muted-foreground">+{order.detailItems.length - 2} more items</div>
-              )}
-
-              <div className="flex justify-between font-medium mt-2">
-                <span>Total</span>
-                <span>Rp {order.totalHarga.toLocaleString()}</span>
-              </div>
-            </div>
-
-            {!showTracking && (
-              <div className="mt-4 flex gap-2">
-                <Button variant="outline" className="flex-1">
-                  Contact Seller
-                </Button>
-                {mappedStatus === "delivered" && (
-                  <Button className="flex-1">
-                    <RotateCw className="h-4 w-4 mr-2" />
-                    Order Again
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
     )
   }
 
-  const renderActiveOrders = () => {
-    if (isLoading) {
-      return (
-        <div className="text-center py-12">
-          <Loader2 className="h-8 w-8 mx-auto animate-spin text-muted-foreground mb-4" />
-          <p className="text-muted-foreground">Loading orders...</p>
-        </div>
-      )
-    }
-
-    if (activeOrders.length === 0) {
-      return (
-        <div className="text-center py-12">
-          <ShoppingBag className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-lg font-medium mb-2">No active orders</h3>
-          <p className="text-muted-foreground mb-4">You don't have any active orders at the moment.</p>
-          <Button asChild>
-            <Link href="/">Order Now</Link>
-          </Button>
-        </div>
-      )
-    }
-
-    return <div className="space-y-4">{activeOrders.map((order) => renderOrderCard(order, true))}</div>
-  }
-
-  const renderPastOrders = () => {
-    if (isLoading) {
-      return (
-        <div className="text-center py-12">
-          <Loader2 className="h-8 w-8 mx-auto animate-spin text-muted-foreground mb-4" />
-          <p className="text-muted-foreground">Loading orders...</p>
-        </div>
-      )
-    }
-
-    if (pastOrders.length === 0) {
-      return (
-        <div className="text-center py-12">
-          <ShoppingBag className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-lg font-medium mb-2">No order history</h3>
-          <p className="text-muted-foreground mb-4">You haven't placed any orders yet.</p>
-          <Button asChild>
-            <Link href="/">Order Now</Link>
-          </Button>
-        </div>
-      )
-    }
-
-    return <div className="space-y-4">{pastOrders.map((order) => renderOrderCard(order, false))}</div>
-  }
-
   return (
-    <div className="pb-20">
+    <div className="flex flex-col min-h-screen">
+      {/* Header */}
       <div className="sticky top-0 z-10 bg-background border-b">
-        <div className="p-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold">My Orders</h1>
-            <Button variant="ghost" size="icon" onClick={refreshOrders} disabled={isLoading}>
-              <RefreshCw className={`h-5 w-5 ${isLoading ? "animate-spin" : ""}`} />
-            </Button>
-          </div>
+        <div className="flex items-center p-4">
+          <Button variant="ghost" size="icon" onClick={() => router.back()} className="mr-2">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <h1 className="text-xl font-bold">Driver Tracking</h1>
+          {wsConnected ? (
+            <span className="ml-auto inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+              <span className="w-2 h-2 mr-1 bg-green-500 rounded-full"></span>
+              Live
+            </span>
+          ) : (
+            <span className="ml-auto inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800">
+              <span className="w-2 h-2 mr-1 bg-red-500 rounded-full"></span>
+              Offline
+            </span>
+          )}
         </div>
       </div>
 
-      {error && (
-        <div className="p-4">
-          <div className="bg-red-50 border border-red-200 rounded-md p-3">
-            <p className="text-red-600 text-sm">{error}</p>
-            <Button variant="outline" size="sm" onClick={refreshOrders} className="mt-2">
-              Try Again
-            </Button>
-          </div>
+      {/* Map */}
+      <div className="relative">
+        <GoogleMap
+          mapContainerStyle={mapContainerStyle}
+          center={driverLocation || deliveryLocation || { lat: -6.2088, lng: 106.8456 }}
+          zoom={16}
+          onLoad={onMapLoad}
+          options={{
+            fullscreenControl: false,
+            streetViewControl: false,
+            mapTypeControl: false,
+            zoomControl: true,
+            zoomControlOptions: {
+              position: 7, // RIGHT_CENTER
+            },
+            gestureHandling: "greedy",
+          }}
+        >
+          {/* Restaurant Marker - Store emoji */}
+          {restaurantLocation && (
+            <Marker
+              position={restaurantLocation}
+              icon={{
+                url:
+                  "data:image/svg+xml;charset=UTF-8," +
+                  encodeURIComponent(`
+                  <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="20" cy="20" r="18" fill="#10B981" stroke="white" strokeWidth="3"/>
+                    <text x="20" y="26" textAnchor="middle" fill="white" fontSize="16" fontWeight="bold">🏪</text>
+                  </svg>
+                `),
+                scaledSize: new google.maps.Size(40, 40),
+                anchor: new google.maps.Point(20, 20),
+              }}
+            />
+          )}
+
+          {/* Delivery Location Marker - House emoji */}
+          {deliveryLocation && (
+            <Marker
+              position={deliveryLocation}
+              icon={{
+                url:
+                  "data:image/svg+xml;charset=UTF-8," +
+                  encodeURIComponent(`
+                  <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="20" cy="20" r="18" fill="#EF4444" stroke="white" strokeWidth="3"/>
+                    <text x="20" y="26" textAnchor="middle" fill="white" fontSize="16" fontWeight="bold">🏠</text>
+                  </svg>
+                `),
+                scaledSize: new google.maps.Size(40, 40),
+                anchor: new google.maps.Point(20, 20),
+              }}
+            />
+          )}
+
+          {/* Driver Marker - Motorcycle emoji */}
+          {driverLocation && (
+            <Marker
+              position={driverLocation}
+              icon={{
+                url:
+                  "data:image/svg+xml;charset=UTF-8," +
+                  encodeURIComponent(`
+                  <svg width="50" height="50" viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="25" cy="25" r="22" fill="#3B82F6" stroke="white" strokeWidth="4"/>
+                    <text x="25" y="32" textAnchor="middle" fill="white" fontSize="22" fontWeight="bold">🏍️</text>
+                  </svg>
+                `),
+                scaledSize: new google.maps.Size(50, 50),
+                anchor: new google.maps.Point(25, 25),
+              }}
+            />
+          )}
+        </GoogleMap>
+
+        {/* Map Controls */}
+        <div className="absolute bottom-4 right-4 z-10">
+          <Button
+            size="icon"
+            className="h-10 w-10 rounded-full bg-white text-black shadow-md hover:bg-gray-100"
+            variant={isFollowingDriver ? "default" : "outline"}
+            onClick={toggleFollowDriver}
+          >
+            <Crosshair className="h-5 w-5" />
+          </Button>
         </div>
-      )}
+      </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <div className="border-b">
-          <TabsList className="w-full rounded-none bg-transparent p-0">
-            <TabsTrigger
-              value="active"
-              className="flex-1 rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary"
-            >
-              Active ({activeOrders.length})
-            </TabsTrigger>
-            <TabsTrigger
-              value="history"
-              className="flex-1 rounded-none border-b-2 border-transparent px-4 py-3 data-[state=active]:border-primary"
-            >
-              History ({pastOrders.length})
-            </TabsTrigger>
-          </TabsList>
-        </div>
+      {/* Driver Info & Order Details */}
+      <div className="flex-1 p-4 space-y-4">
+        {/* Driver Info Card */}
+        <Card>
+          <CardContent className="p-4">
+            {driver ? (
+              <div>
+                <div className="flex items-center gap-4">
+                  <div className="relative h-16 w-16 rounded-full overflow-hidden">
+                    <Image src={driver.photo || "/placeholder.svg"} alt={driver.name} fill className="object-cover" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-medium">{driver.name}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {driver.vehicle} • {driver.plate}
+                    </p>
+                    <div className="flex items-center mt-1">
+                      <span className="text-sm font-medium mr-1">{driver.rating}</span>
+                      <div className="flex">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <svg
+                            key={star}
+                            className={`h-4 w-4 ${
+                              star <= Math.round(driver.rating) ? "text-yellow-400" : "text-gray-300"
+                            }`}
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                          >
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                          </svg>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="icon" variant="outline" className="h-10 w-10 rounded-full">
+                      <Phone className="h-5 w-5" />
+                    </Button>
+                    <Button size="icon" variant="outline" className="h-10 w-10 rounded-full">
+                      <MessageSquare className="h-5 w-5" />
+                    </Button>
+                  </div>
+                </div>
 
-        <div className="p-4">
-          <TabsContent value="active" className="mt-0">
-            {renderActiveOrders()}
-          </TabsContent>
+                {/* ETA and Distance */}
+                <div className="mt-4 grid grid-cols-2 gap-4">
+                  <div className="text-center">
+                    <Clock className="h-5 w-5 mx-auto text-orange-500 mb-1" />
+                    <p className="text-xs text-gray-600">ETA</p>
+                    <p className="font-semibold">{estimatedArrival} min</p>
+                  </div>
+                  <div className="text-center">
+                    <Navigation className="h-5 w-5 mx-auto text-blue-500 mb-1" />
+                    <p className="text-xs text-gray-600">Distance</p>
+                    <p className="font-semibold">{distance}</p>
+                  </div>
+                </div>
 
-          <TabsContent value="history" className="mt-0">
-            {renderPastOrders()}
-          </TabsContent>
-        </div>
-      </Tabs>
+                {/* Driver Status */}
+                <div className="mt-4 flex items-center justify-center">
+                  <MapPin className="h-5 w-5 text-primary mr-1" />
+                  <span>{getDriverStatusText()}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="animate-pulse">
+                <div className="flex items-center gap-4">
+                  <div className="rounded-full bg-slate-200 h-16 w-16"></div>
+                  <div className="flex-1">
+                    <div className="h-4 bg-slate-200 rounded w-3/4 mb-2"></div>
+                    <div className="h-3 bg-slate-200 rounded w-1/2 mb-2"></div>
+                    <div className="h-3 bg-slate-200 rounded w-1/4"></div>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="rounded-full bg-slate-200 h-10 w-10"></div>
+                    <div className="rounded-full bg-slate-200 h-10 w-10"></div>
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center justify-between">
+                  <div className="h-4 bg-slate-200 rounded w-1/3"></div>
+                  <div className="h-4 bg-slate-200 rounded w-1/4"></div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-      <BottomNavigation />
+        {/* Tip Driver Card */}
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="font-medium mb-3">💰 Let's tip your driver</h3>
+            <div className="grid grid-cols-4 gap-2 mb-3">
+              {[5000, 10000, 15000, 20000].map((amount) => (
+                <Button
+                  key={amount}
+                  variant={selectedTip === amount ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setSelectedTip(amount)
+                    setTipAmount(amount)
+                  }}
+                  className="text-xs"
+                >
+                  Rp{amount.toLocaleString()}
+                </Button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                placeholder="Custom amount"
+                value={tipAmount || ""}
+                onChange={(e) => {
+                  const value = Number.parseInt(e.target.value) || 0
+                  setTipAmount(value)
+                  setSelectedTip(null)
+                }}
+                className="flex-1 px-3 py-2 border rounded-md text-sm"
+              />
+              <Button size="sm" disabled={!tipAmount}>
+                Add Tip
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Order Details Card */}
+        {orderDetails && (
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="font-medium mb-3">📋 Order Details</h3>
+
+              {/* Restaurant Address */}
+              <div className="mb-4">
+                <div className="flex items-start gap-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full mt-1.5"></div>
+                  <div>
+                    <p className="font-medium text-sm">{orderDetails.restaurantName}</p>
+                    <p className="text-xs text-muted-foreground">{orderDetails.restaurantLocation.address}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Delivery Address */}
+              <div className="mb-4">
+                <div className="flex items-start gap-2">
+                  <div className="w-3 h-3 bg-red-500 rounded-full mt-1.5"></div>
+                  <div>
+                    <p className="font-medium text-sm">Delivery Address</p>
+                    <p className="text-xs text-muted-foreground">{orderDetails.deliveryLocation.address}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Method */}
+              <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">💳 Payment:</span>
+                  <span className="text-sm">{orderDetails.paymentMethod}</span>
+                </div>
+              </div>
+
+              {/* Order Items */}
+              <div>
+                <h4 className="font-medium text-sm mb-2">🛍️ Items Ordered</h4>
+                <div className="space-y-2">
+                  {orderDetails.items.map((item, index) => (
+                    <div key={index} className="flex justify-between items-center py-1">
+                      <span className="text-sm">{item.name}</span>
+                      <span className="text-sm font-medium">x{item.quantity}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Order Summary */}
+                <div className="mt-4 pt-3 border-t space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span>Delivery Fee</span>
+                    <span>Rp{orderDetails.deliveryFee.toLocaleString()}</span>
+                  </div>
+                  {tipAmount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span>Tip</span>
+                      <span>Rp{tipAmount.toLocaleString()}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-medium text-sm pt-1 border-t">
+                    <span>Total</span>
+                    <span>Rp{(orderDetails.total + tipAmount).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   )
 }

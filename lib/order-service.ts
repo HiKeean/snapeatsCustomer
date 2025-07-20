@@ -1,4 +1,5 @@
 import { API_URL } from "@/services/api"
+import { getToken } from "@/services/authService"
 
 // Types based on your actual API response
 export interface OrderDtoPembeli {
@@ -56,7 +57,7 @@ class OrderService {
   // Get all orders - your API returns all orders in one call, not pageable
   async getAllOrders(page = 0, size = 10): Promise<OrderDtoPembeli[]> {
     try {
-      const token = this.getAuthToken()
+      const token = await getToken()
       if (!token) {
         throw new Error("No authentication token found")
       }
